@@ -13,16 +13,12 @@ use sctk::data_device_manager::{DataDeviceManagerState, WritePipe};
 use sctk::primary_selection::PrimarySelectionManagerState;
 use sctk::primary_selection::device::{PrimarySelectionDevice, PrimarySelectionDeviceHandler};
 use sctk::primary_selection::selection::{PrimarySelectionSource, PrimarySelectionSourceHandler};
-use sctk::registry::{ProvidesRegistryState, RegistryState};
 use sctk::seat::pointer::{PointerData, PointerEvent, PointerEventKind, PointerHandler};
 use sctk::seat::{Capability, SeatHandler, SeatState};
-use sctk::{
-    delegate_data_device, delegate_pointer, delegate_primary_selection, delegate_registry,
-    delegate_seat, registry_handlers,
-};
+use sctk::registry_handlers;
 
 use sctk::reexports::calloop::{LoopHandle, PostAction};
-use sctk::reexports::client::globals::GlobalList;
+use sctk::reexports::client::globals::{GlobalList, GlobalListHandler};
 use sctk::reexports::client::protocol::wl_data_device::WlDataDevice;
 use sctk::reexports::client::protocol::wl_data_device_manager::DndAction;
 use sctk::reexports::client::protocol::wl_data_source::WlDataSource;
@@ -45,7 +41,6 @@ pub struct State {
     pub reply_tx: Sender<Result<String>>,
     pub exit: bool,
 
-    registry_state: RegistryState,
     seat_state: SeatState,
 
     seats: HashMap<ObjectId, ClipboardSeatState>,
@@ -89,7 +84,6 @@ impl State {
         }
 
         Some(Self {
-            registry_state: RegistryState::new(globals),
             primary_selection_content: Rc::from([]),
             data_selection_content: Rc::from([]),
             queue_handle: queue_handle.clone(),
@@ -362,7 +356,7 @@ impl PointerHandler for State {
         pointer: &WlPointer,
         events: &[PointerEvent],
     ) {
-        let seat = pointer.data::<PointerData>().unwrap().seat();
+        let seat = pointer.data::<PointerData<()>>().unwrap().seat();
         let seat_id = seat.id();
         let seat_state = match self.seats.get_mut(&seat_id) {
             Some(seat_state) => seat_state,
@@ -462,12 +456,8 @@ impl DataOfferHandler for State {
     }
 }
 
-impl ProvidesRegistryState for State {
+impl GlobalListHandler for State {
     registry_handlers![SeatState];
-
-    fn registry(&mut self) -> &mut RegistryState {
-        &mut self.registry_state
-    }
 }
 
 impl PrimarySelectionDeviceHandler for State {
@@ -502,24 +492,24 @@ impl PrimarySelectionSourceHandler for State {
     }
 }
 
-impl Dispatch<WlKeyboard, ObjectId, State> for State {
+impl Dispatch<WlKeyboard, State> for ObjectId {
     fn event(
+        &self,
         state: &mut State,
         _: &WlKeyboard,
         event: <WlKeyboard as sctk::reexports::client::Proxy>::Event,
-        data: &ObjectId,
         _: &Connection,
         _: &QueueHandle<State>,
     ) {
         use sctk::reexports::client::protocol::wl_keyboard::Event as WlKeyboardEvent;
-        let seat_state = match state.seats.get_mut(data) {
+        let seat_state = match state.seats.get_mut(self) {
             Some(seat_state) => seat_state,
             None => return,
         };
         match event {
             WlKeyboardEvent::Key { serial, .. } | WlKeyboardEvent::Modifiers { serial, .. } => {
                 seat_state.latest_serial = serial;
-                state.latest_seat = Some(data.clone());
+                state.latest_seat = Some(self.clone());
             },
             // NOTE both selections rely on keyboard focus.
             WlKeyboardEvent::Enter { serial, .. } => {
@@ -534,12 +524,6 @@ impl Dispatch<WlKeyboard, ObjectId, State> for State {
         }
     }
 }
-
-delegate_seat!(State);
-delegate_pointer!(State);
-delegate_data_device!(State);
-delegate_primary_selection!(State);
-delegate_registry!(State);
 
 #[derive(Debug, Clone, Copy)]
 pub enum SelectionTarget {
