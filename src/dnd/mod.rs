@@ -46,7 +46,7 @@ impl<'a> RawSurface for raw_window_handle::WindowHandle<'a> {
 
 impl RawSurface for WlSurface {
     unsafe fn get_ptr(&mut self) -> *mut c_void {
-        self.id().as_ptr().cast()
+        self.id().as_ptr().unwrap().as_ptr().cast()
     }
 }
 

@@ -18,18 +18,14 @@ use sctk::primary_selection::selection::{PrimarySelectionSource, PrimarySelectio
 use sctk::primary_selection::PrimarySelectionManagerState;
 use sctk::reexports::client::protocol::wl_output::WlOutput;
 use sctk::reexports::client::protocol::wl_surface::WlSurface;
-use sctk::registry::{ProvidesRegistryState, RegistryState};
 use sctk::seat::pointer::{PointerData, PointerEvent, PointerEventKind, PointerHandler};
 use sctk::seat::{Capability, SeatHandler, SeatState};
 use sctk::shm::multi::MultiPool;
 use sctk::shm::{Shm, ShmHandler};
-use sctk::{
-    delegate_compositor, delegate_data_device, delegate_output, delegate_pointer,
-    delegate_primary_selection, delegate_registry, delegate_seat, delegate_shm, registry_handlers,
-};
+use sctk::registry_handlers;
 
 use sctk::reexports::calloop::{LoopHandle, PostAction};
-use sctk::reexports::client::globals::GlobalList;
+use sctk::reexports::client::globals::{GlobalList, GlobalListHandler};
 use sctk::reexports::client::protocol::wl_data_device::WlDataDevice;
 use sctk::reexports::client::protocol::wl_data_device_manager::DndAction;
 use sctk::reexports::client::protocol::wl_data_source::WlDataSource;
@@ -54,7 +50,6 @@ pub struct State<T> {
     pub reply_tx: Sender<Result<(Vec<u8>, MimeType)>>,
     pub exit: bool,
 
-    registry_state: RegistryState,
     pub(crate) seat_state: SeatState,
 
     pub(crate) seats: HashMap<ObjectId, ClipboardSeatState>,
@@ -110,7 +105,6 @@ impl<T: 'static + Clone> State<T> {
         }
 
         Some(Self {
-            registry_state: RegistryState::new(globals),
             primary_selection_content: Box::new(Text(String::new())),
             data_selection_content: Box::new(Text(String::new())),
             queue_handle: queue_handle.clone(),
@@ -392,7 +386,7 @@ impl<T: 'static + Clone> PointerHandler for State<T> {
         pointer: &WlPointer,
         events: &[PointerEvent],
     ) {
-        let seat = pointer.data::<PointerData>().unwrap().seat();
+        let seat = pointer.data::<PointerData<()>>().unwrap().seat();
         let seat_id = seat.id();
         let seat_state = match self.seats.get_mut(&seat_id) {
             Some(seat_state) => seat_state,
@@ -569,12 +563,8 @@ impl<T: 'static + Clone> DataOfferHandler for State<T> {
     }
 }
 
-impl<T: 'static + Clone> ProvidesRegistryState for State<T> {
+impl<T: 'static + Clone> GlobalListHandler for State<T> {
     registry_handlers![SeatState];
-
-    fn registry(&mut self) -> &mut RegistryState {
-        &mut self.registry_state
-    }
 }
 
 impl<T: 'static + Clone> PrimarySelectionDeviceHandler for State<T> {
@@ -609,24 +599,24 @@ impl<T: 'static + Clone> PrimarySelectionSourceHandler for State<T> {
     }
 }
 
-impl<T: 'static + Clone> Dispatch<WlKeyboard, ObjectId, State<T>> for State<T> {
+impl<T: 'static + Clone> Dispatch<WlKeyboard, State<T>> for ObjectId {
     fn event(
+        &self,
         state: &mut State<T>,
         _: &WlKeyboard,
         event: <WlKeyboard as sctk::reexports::client::Proxy>::Event,
-        data: &ObjectId,
         _: &Connection,
         _: &QueueHandle<State<T>>,
     ) {
         use sctk::reexports::client::protocol::wl_keyboard::Event as WlKeyboardEvent;
-        let seat_state = match state.seats.get_mut(data) {
+        let seat_state = match state.seats.get_mut(self) {
             Some(seat_state) => seat_state,
             None => return,
         };
         match event {
             WlKeyboardEvent::Key { serial, .. } | WlKeyboardEvent::Modifiers { serial, .. } => {
                 seat_state.latest_serial = serial;
-                state.latest_seat = Some(data.clone());
+                state.latest_seat = Some(self.clone());
             },
             // NOTE both selections rely on keyboard focus.
             WlKeyboardEvent::Enter { serial, .. } => {
@@ -724,15 +714,6 @@ impl<T: 'static + Clone> ShmHandler for State<T> {
         &mut self.shm
     }
 }
-
-delegate_compositor!(@<T: 'static + Clone> State<T>);
-delegate_output!(@<T: 'static + Clone> State<T>);
-delegate_shm!(@<T: 'static + Clone> State<T>);
-delegate_seat!(@<T: 'static + Clone> State<T>);
-delegate_pointer!(@<T: 'static + Clone> State<T>);
-delegate_data_device!(@<T: 'static + Clone> State<T>);
-delegate_primary_selection!(@<T: 'static + Clone> State<T>);
-delegate_registry!(@<T: 'static + Clone> State<T>);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Target {
