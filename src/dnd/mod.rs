@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::fmt::Debug;
+use std::ptr::NonNull;
 use std::sync::mpsc::SendError;
 
 use sctk::reexports::calloop;
@@ -36,26 +37,26 @@ impl<T: RawSurface> DndSurface<T> {
 
 #[cfg(feature = "rwh-6")]
 impl<'a> RawSurface for raw_window_handle::WindowHandle<'a> {
-    unsafe fn get_ptr(&mut self) -> *mut c_void {
+    unsafe fn get_ptr(&mut self) -> NonNull<c_void> {
         match self.as_raw() {
-            raw_window_handle::RawWindowHandle::Wayland(handle) => handle.surface.as_ptr().cast(),
+            raw_window_handle::RawWindowHandle::Wayland(handle) => handle.surface.cast(),
             _ => panic!("Unsupported window handle type."),
         }
     }
 }
 
 impl RawSurface for WlSurface {
-    unsafe fn get_ptr(&mut self) -> *mut c_void {
-        self.id().as_ptr().unwrap().as_ptr().cast()
+    unsafe fn get_ptr(&mut self) -> NonNull<c_void> {
+        self.id().as_ptr().unwrap().cast()
     }
 }
 
 pub trait RawSurface {
     /// # Safety
     ///
-    /// returned pointer must be a valid `*mut wl_surface` pointer, and it must
+    /// returned pointer must be a valid `NonNull<wl_surface>` pointer, and it must
     /// remain valid for as long as `RawSurface` object is alive.
-    unsafe fn get_ptr(&mut self) -> *mut c_void;
+    unsafe fn get_ptr(&mut self) -> NonNull<c_void>;
 }
 
 pub trait Sender<T> {

@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::io::Result;
+use std::ptr::NonNull;
 use std::sync::mpsc::{self, Receiver};
 
 use sctk::reexports::calloop::channel::{self, Sender};
@@ -44,7 +45,7 @@ impl<T: 'static + Send + Clone> Clipboard<T> {
     /// `display` must be a valid `*mut wl_display` pointer, and it must remain
     /// valid for as long as `Clipboard` object is alive.
     pub unsafe fn new(display: *mut c_void) -> Self {
-        let backend = unsafe { Backend::from_foreign_display(display.cast()) };
+        let backend = unsafe { Backend::from_foreign_display(NonNull::new(display.cast()).unwrap()) };
         let connection = Connection::from_backend(backend);
 
         // Create channel to send data to clipboard thread.
